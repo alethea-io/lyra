@@ -1,22 +1,27 @@
 use std::path::PathBuf;
 
-use deno_runtime::deno_core::{self, op2, ModuleSpecifier, OpState};
+use deno_runtime::deno_core;
+use deno_runtime::deno_core::op2;
+use deno_runtime::deno_core::ModuleSpecifier;
+use deno_runtime::deno_core::OpState;
 use deno_runtime::permissions::PermissionsContainer;
-use deno_runtime::worker::{MainWorker as DenoWorker, WorkerOptions};
+use deno_runtime::worker::MainWorker as DenoWorker;
+use deno_runtime::worker::WorkerOptions;
 use gasket::framework::*;
-use pallas::interop::utxorpc::{map_block, map_tx_output};
-use pallas::ledger::traverse::{MultiEraBlock, OutputRef};
+use pallas::interop::utxorpc::map_block;
+use pallas::interop::utxorpc::map_tx_output;
+use pallas::ledger::traverse::MultiEraBlock;
+use pallas::ledger::traverse::OutputRef;
 use serde::Deserialize;
 use serde_json::json;
-use tracing::trace;
+use tracing::{debug, error};
 use utxorpc::proto::cardano::v1 as u5c;
 
 use crate::framework::model::CRDTCommand;
 use crate::framework::*;
 
-const SYNC_CALL_SNIPPET: &str = r#"Deno[Deno.internal].core.ops.op_put_record(reduce(Deno[Deno.internal].core.ops.op_pop_record()));"#;
-
-const ASYNC_CALL_SNIPPET: &str = r#"reduce(Deno[Deno.internal].core.ops.op_pop_record()).then(x => Deno[Deno.internal].core.ops.op_put_record(x));"#;
+const SYNC_CALL_SNIPPET: &str = r#"Deno[Deno.internal].core.ops.op_put_record(METHOD(Deno[Deno.internal].core.ops.op_pop_record()));"#;
+const ASYNC_CALL_SNIPPET: &str = r#"METHOD(Deno[Deno.internal].core.ops.op_pop_record()).then(x => Deno[Deno.internal].core.ops.op_put_record(x));"#;
 
 deno_core::extension!(deno_reducer, ops = [op_pop_record, op_put_record]);
 
@@ -43,15 +48,14 @@ pub fn op_put_record(
 #[derive(Deserialize)]
 pub struct Config {
     main_module: String,
-    storage_command_type: String,
     use_async: bool,
 }
 
 impl Config {
-    pub fn bootstrapper(self, _ctx: &Context) -> Result<Stage, Error> {
+    pub fn bootstrapper(self, ctx: &Context) -> Result<Stage, Error> {
         let stage = Stage {
             main_module: PathBuf::from(self.main_module),
-            storage_command_type: self.storage_command_type,
+            storage_type: ctx.storage_type.clone(),
             call_snippet: if self.use_async {
                 ASYNC_CALL_SNIPPET
             } else {
@@ -79,10 +83,7 @@ async fn setup_deno(main_module: &PathBuf) -> Result<DenoWorker, WorkerError> {
     let code = deno_core::FastString::from(std::fs::read_to_string(main_module).unwrap());
 
     deno.js_runtime
-        .load_side_module(
-            &ModuleSpecifier::parse("lyra:reducer").unwrap(),
-            Some(code),
-        )
+        .load_side_module(&ModuleSpecifier::parse("lyra:reducer").unwrap(), Some(code))
         .await
         .unwrap();
 
@@ -99,17 +100,38 @@ async fn setup_deno(main_module: &PathBuf) -> Result<DenoWorker, WorkerError> {
 #[stage(name = "reducer-deno", unit = "ChainEvent", worker = "Worker")]
 pub struct Stage {
     main_module: PathBuf,
-    storage_command_type: String,
+    storage_type: String,
     call_snippet: &'static str,
 
     pub input: ReducerInputPort,
     pub output: ReducerOutputPort,
+
     #[metric]
     ops_count: gasket::metrics::Counter,
 }
 
 pub struct Worker {
     runtime: DenoWorker,
+}
+
+impl Worker {
+    async fn reduce(
+        &mut self,
+        call_snippet: String,
+        block: u5c::Block,
+    ) -> Result<Option<serde_json::Value>, WorkerError> {
+        let deno = &mut self.runtime;
+
+        deno.js_runtime.op_state().borrow_mut().put(block);
+
+        let script = deno_core::FastString::from(call_snippet);
+        deno.execute_script("<anon>", script).or_panic()?;
+        deno.run_event_loop(false).await.unwrap();
+
+        let output: Option<serde_json::Value> = deno.js_runtime.op_state().borrow_mut().try_take();
+
+        Ok(output)
+    }
 }
 
 #[async_trait::async_trait(?Send)]
@@ -135,7 +157,13 @@ impl gasket::framework::Worker<Stage> for Worker {
 
         let record = record.unwrap();
 
-        match record {
+        let call_snippet = match unit {
+            ChainEvent::Apply(_, _) => stage.call_snippet.replace("METHOD", "apply"),
+            ChainEvent::Undo(_, _) => stage.call_snippet.replace("METHOD", "undo"),
+            ChainEvent::Reset(_) => return Ok(()),
+        };
+
+        let output = match record {
             Record::EnrichedBlockPayload(block, ctx) => {
                 let block = MultiEraBlock::decode(block)
                     .map_err(Error::cbor)
@@ -151,7 +179,7 @@ impl gasket::framework::Worker<Stage> for Worker {
                             let tx_hash = pallas::crypto::hash::Hash::from(hash_bytes);
                             let output_index = input.output_index as u64;
                             let output_ref = OutputRef::new(tx_hash, output_index);
-                            
+
                             if let Ok(output) = ctx.find_utxo(&output_ref) {
                                 input.as_output = Some(map_tx_output(&output));
                             }
@@ -159,37 +187,28 @@ impl gasket::framework::Worker<Stage> for Worker {
                     }
                 }
 
-                let deno = &mut self.runtime;
-
-                trace!(?record, "sending record to js runtime");
-                deno.js_runtime.op_state().borrow_mut().put(block);
-
-                let script = deno_core::FastString::from_static(stage.call_snippet);
-                deno.execute_script("<anon>", script).or_panic()?;
-                deno.run_event_loop(false).await.unwrap();
-
-                let out: Option<serde_json::Value> =
-                    deno.js_runtime.op_state().borrow_mut().try_take();
-
-                trace!(?out, "received record from js runtime");
-                if let Some(json) = out {
-                    let event = match stage.storage_command_type.as_str() {
-                        "crdt" => {
-                            let commands: Vec<CRDTCommand> =
-                                serde_json::from_value(json).or_panic()?;
-                            ChainEvent::apply(unit.point().clone(), Record::CRDTCommand(commands))
-                        }
-                        "sql" => {
-                            let commands: Vec<String> = serde_json::from_value(json).or_panic()?;
-                            ChainEvent::apply(unit.point().clone(), Record::SQLCommand(commands))
-                        }
-                        _ => return Err(WorkerError::Panic),
-                    };
-                    stage.output.send(event).await.or_retry()?;
-                }
+                self.reduce(call_snippet, block).await.unwrap()
+            }
+            Record::UtxoRpcBlockPayload(block) => {
+                self.reduce(call_snippet, block.clone()).await.unwrap()
             }
             _ => todo!(),
         };
+
+        if let Some(json) = output {
+            let event = match stage.storage_type.as_str() {
+                "Redis" => {
+                    let commands: Vec<CRDTCommand> = CRDTCommand::from_json_array(&json).or_panic()?;
+                    ChainEvent::apply(unit.point().clone(), Record::CRDTCommand(commands))
+                }
+                "Postgres" => {
+                    let commands: Vec<String> = serde_json::from_value(json).or_panic()?;
+                    ChainEvent::apply(unit.point().clone(), Record::SQLCommand(commands))
+                }
+                _ => return Err(WorkerError::Panic),
+            };
+            stage.output.send(event).await.or_retry()?;
+        }
 
         Ok(())
     }

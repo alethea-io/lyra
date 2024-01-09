@@ -1,5 +1,4 @@
 use clap;
-use futures::executor::block_on;
 use gasket::runtime::Tether;
 use lyra::enrich;
 use lyra::framework::*;
@@ -156,6 +155,7 @@ pub fn run(args: &Args) -> Result<(), Error> {
     let chain = config.chain.unwrap_or_default();
     let intersect = config.intersect;
     let finalize = config.finalize;
+    let storage_type = config.storage.get_type().to_owned();
 
     let cursor = load_cursor_sync(&config.storage).unwrap();
     if cursor.is_empty() {
@@ -170,6 +170,7 @@ pub fn run(args: &Args) -> Result<(), Error> {
         intersect,
         cursor,
         finalize,
+        storage_type,
     };
 
     let source = config.source.bootstrapper(&ctx)?;

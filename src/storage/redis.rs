@@ -7,7 +7,7 @@ use r2d2_redis::redis::ToRedisArgs;
 use r2d2_redis::RedisConnectionManager;
 use serde::Deserialize;
 use std::ops::DerefMut;
-use tracing::{debug, info};
+use tracing::info;
 
 use crate::framework::*;
 
@@ -48,85 +48,61 @@ impl gasket::framework::Worker<Stage> for Worker {
 
                 redis::cmd("MULTI").query(conn.deref_mut()).or_retry()?;
 
-                // TODO: add to parallel persist
                 for command in commands {
                     match command {
                         model::CRDTCommand::GrowOnlySetAdd(key, value) => {
-                            conn.deref_mut().sadd(key, value).or_restart()?;
+                            conn.sadd(key, value).or_restart()?;
                         }
                         model::CRDTCommand::TwoPhaseSetAdd(key, value) => {
-                            debug!(key, value, "adding to 2-phase");
-
-                            conn.deref_mut().sadd(key, value).or_restart()?;
+                            conn.sadd(key, value).or_restart()?;
                         }
                         model::CRDTCommand::TwoPhaseSetRemove(key, value) => {
-                            debug!(key, value, "removing from 2-phase");
-
-                            conn.deref_mut()
+                            conn
                                 .sadd(format!("{}.ts", key), value)
                                 .or_restart()?;
                         }
                         model::CRDTCommand::SetAdd(key, value) => {
-                            debug!(key, value, "adding");
-
-                            conn.deref_mut().sadd(key, value).or_restart()?;
+                            conn.sadd(key, value).or_restart()?;
                         }
                         model::CRDTCommand::SetRemove(key, value) => {
-                            debug!(key, value, "removing");
-
-                            conn.deref_mut().srem(key, value).or_restart()?;
+                            conn.srem(key, value).or_restart()?;
                         }
                         model::CRDTCommand::LastWriteWins(key, value, slot) => {
-                            debug!(key, slot, "last write");
-
-                            conn.deref_mut().zadd(key, value, slot).or_restart()?;
+                            conn.zadd(key, value, slot).or_restart()?;
                         }
                         model::CRDTCommand::SortedSetAdd(key, value, delta) => {
-                            debug!(key, value, delta, "sorted set add");
-
-                            conn.deref_mut().zincr(key, value, delta).or_restart()?;
+                            conn.zincr(key, value, delta).or_restart()?;
                         }
                         model::CRDTCommand::SortedSetRemove(key, value, delta) => {
-                            debug!(key, value, delta, "sorted set remove");
-
-                            conn.deref_mut().zincr(&key, value, delta).or_restart()?;
+                            conn.zincr(&key, value, delta).or_restart()?;
 
                             // removal of dangling scores  (aka garage collection)
-                            conn.deref_mut().zrembyscore(&key, 0, 0).or_restart()?;
+                            conn.zrembyscore(&key, 0, 0).or_restart()?;
                         }
                         model::CRDTCommand::AnyWriteWins(key, value) => {
-                            debug!(key, "overwrite");
-
-                            conn.deref_mut().set(key, value).or_restart()?;
+                            conn.set(key, value).or_restart()?;
                         }
                         model::CRDTCommand::PNCounter(key, value) => {
-                            debug!(key, value, "increasing counter");
-
-                            conn.deref_mut().incr(key, value).or_restart()?;
+                            conn.incr(key, value).or_restart()?;
                         }
                         model::CRDTCommand::HashSetValue(key, member, value) => {
-                            debug!(key, member, "setting hash");
-
-                            conn.deref_mut().hset(key, member, value).or_restart()?;
+                            conn.hset(key, member, value).or_restart()?;
                         }
                         model::CRDTCommand::HashCounter(key, member, delta) => {
-                            debug!(key, member, delta, "increasing hash");
-
-                            conn.deref_mut().hincr(key, member, delta).or_restart()?;
+                            conn.hincr(key, member, delta).or_restart()?;
                         }
                         model::CRDTCommand::HashUnsetKey(key, member) => {
-                            debug!(key, member, "deleting hash");
-
-                            conn.deref_mut().hdel(member, key).or_restart()?;
+                            conn.hdel(member, key).or_restart()?;
                         }
                     }
                 }
 
+                // Update the cursor state
                 stage.cursor.track(point.clone());
 
-                let data = serde_json::to_string(&stage.cursor.to_data()).or_panic()?;
+                let cursor_data = serde_json::to_string(&stage.cursor.to_data()).or_panic()?;
 
-                conn.deref_mut().set("cursor", data).or_restart()?;
+                conn.set("cursor", cursor_data).or_restart()?;
 
                 redis::cmd("EXEC").query(conn.deref_mut()).or_retry()?;
             }
@@ -189,8 +165,13 @@ impl Config {
                     serde_json::from_str(&json).map_err(Error::parsing)?;
                 Breadcrumbs::from_data(data)
             }
-            Err(e) => Err(Error::storage(e)),
-            // Err(e) => Ok(Breadcrumbs::new()),
+            Err(e) => {
+                if e.kind() == r2d2_redis::redis::ErrorKind::TypeError {
+                    Ok(Breadcrumbs::new())
+                } else {
+                    Err(Error::storage(e))
+                }
+            }
         }
     }
 }

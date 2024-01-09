@@ -27,6 +27,14 @@ gasket::impl_mapper!(|_worker: Worker, stage: Stage, unit: ChainEvent| => {
         ChainEvent::Apply(point, record) => {
             match record {
                 Record::RawBlockPayload(cbor) => Ok(ChainEvent::apply(point.clone(), Record::EnrichedBlockPayload(cbor.clone(), BlockContext::default()))),
+                Record::UtxoRpcBlockPayload(block) => Ok(ChainEvent::apply(point.clone(), Record::UtxoRpcBlockPayload(block.clone()))),
+                _ => Err(WorkerError::Panic)
+            }
+        },
+        ChainEvent::Undo(point, record) => {
+            match record {
+                Record::RawBlockPayload(cbor) => Ok(ChainEvent::undo(point.clone(), Record::EnrichedBlockPayload(cbor.clone(), BlockContext::default()))),
+                Record::UtxoRpcBlockPayload(block) => Ok(ChainEvent::undo(point.clone(), Record::UtxoRpcBlockPayload(block.clone()))),
                 _ => Err(WorkerError::Panic)
             }
         },

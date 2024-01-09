@@ -1,4 +1,5 @@
-use std::{collections::VecDeque, path::PathBuf};
+use std::collections::VecDeque;
+use std::path::PathBuf;
 
 use pallas::ledger::traverse::wellknown::GenesisValues;
 use pallas::network::miniprotocols::Point;
@@ -24,6 +25,7 @@ pub enum Record {
 #[derive(Debug, Clone)]
 pub enum ChainEvent {
     Apply(Point, Record),
+    Undo(Point, Record),
     Reset(Point),
 }
 
@@ -31,6 +33,12 @@ impl ChainEvent {
     pub fn apply(point: Point, record: impl Into<Record>) -> gasket::messaging::Message<Self> {
         gasket::messaging::Message {
             payload: Self::Apply(point, record.into()),
+        }
+    }
+
+    pub fn undo(point: Point, record: impl Into<Record>) -> gasket::messaging::Message<Self> {
+        gasket::messaging::Message {
+            payload: Self::Undo(point, record.into()),
         }
     }
 
@@ -43,6 +51,7 @@ impl ChainEvent {
     pub fn point(&self) -> &Point {
         match self {
             Self::Apply(x, _) => x,
+            Self::Undo(x, _) => x,
             Self::Reset(x) => x,
         }
     }
@@ -50,8 +59,46 @@ impl ChainEvent {
     pub fn record(&self) -> Option<&Record> {
         match self {
             Self::Apply(_, x) => Some(x),
+            Self::Undo(_, x) => Some(x),
             _ => None,
         }
+    }
+
+    pub fn map_record(self, f: fn(Record) -> Record) -> Self {
+        match self {
+            Self::Apply(p, x) => Self::Apply(p, f(x)),
+            Self::Undo(p, x) => Self::Undo(p, f(x)),
+            Self::Reset(x) => Self::Reset(x),
+        }
+    }
+
+    pub fn try_map_record<E>(self, f: fn(Record) -> Result<Record, E>) -> Result<Self, E> {
+        let out = match self {
+            Self::Apply(p, x) => Self::Apply(p, f(x)?),
+            Self::Undo(p, x) => Self::Undo(p, f(x)?),
+            Self::Reset(x) => Self::Reset(x),
+        };
+
+        Ok(out)
+    }
+
+    pub fn try_map_record_to_many<E>(
+        self,
+        f: fn(Record) -> Result<Vec<Record>, E>,
+    ) -> Result<Vec<Self>, E> {
+        let out = match self {
+            Self::Apply(p, x) => f(x)?
+                .into_iter()
+                .map(|i| Self::Apply(p.clone(), i))
+                .collect(),
+            Self::Undo(p, x) => f(x)?
+                .into_iter()
+                .map(|i| Self::Undo(p.clone(), i))
+                .collect(),
+            Self::Reset(x) => vec![Self::Reset(x)],
+        };
+
+        Ok(out)
     }
 }
 
@@ -237,4 +284,5 @@ pub struct Context {
     pub intersect: IntersectConfig,
     pub cursor: Breadcrumbs,
     pub finalize: Option<FinalizeConfig>,
+    pub storage_type: String,
 }

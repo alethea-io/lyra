@@ -1,7 +1,10 @@
-use std::{collections::HashMap, fmt::Debug};
+use std::collections::HashMap;
+use std::fmt::Debug;
+use std::str::FromStr;
 
 use pallas::ledger::traverse::{Era, MultiEraOutput, MultiEraTx, OutputRef};
 use serde::Deserialize;
+use serde_json::Value as JsonValue;
 
 use crate::crosscut::policies::{AppliesPolicy, RuntimePolicy};
 
@@ -216,4 +219,112 @@ impl CRDTCommand {
 
         CRDTCommand::HashCounter(key, member, delta)
     }
+
+    pub fn from_json(value: &JsonValue) -> Result<CRDTCommand, String> {
+        let obj = value.as_object().ok_or("Expected a JSON object")?;
+    
+        match obj.get("command").and_then(JsonValue::as_str) {
+            Some("SetAdd") => {
+                let set = extract_string(obj, "set")?;
+                let member = extract_string(obj, "member")?;
+                Ok(CRDTCommand::SetAdd(set, member))
+            }
+            Some("SetRemove") => {
+                let set = extract_string(obj, "set")?;
+                let member = extract_string(obj, "member")?;
+                Ok(CRDTCommand::SetRemove(set, member))
+            }
+            Some("SortedSetAdd") => {
+                let set = extract_string(obj, "set")?;
+                let member = extract_string(obj, "member")?;
+                let delta = extract_delta(obj, "delta")?;
+                Ok(CRDTCommand::SortedSetAdd(set, member, delta))
+            }
+            Some("SortedSetRemove") => {
+                let set = extract_string(obj, "set")?;
+                let member = extract_string(obj, "member")?;
+                let delta = extract_delta(obj, "delta")?;
+                Ok(CRDTCommand::SortedSetRemove(set, member, delta))
+            }
+            Some("AnyWriteWins") => {
+                let key = extract_string(obj, "key")?;
+                let value = extract_value(obj, "value")?;
+                Ok(CRDTCommand::AnyWriteWins(key, value))
+            }
+            Some("LastWriteWins") => {
+                let key = extract_string(obj, "key")?;
+                let value = extract_value(obj, "value")?;
+                let ts = extract_timestamp(obj, "timestamp")?;
+                Ok(CRDTCommand::LastWriteWins(key, value, ts))
+            }
+            Some("PNCounter") => {
+                let key = extract_string(obj, "key")?;
+                let delta = extract_delta(obj, "value")?;
+                Ok(CRDTCommand::PNCounter(key, delta))
+            }
+            Some("HashCounter") => {
+                let key = extract_string(obj, "key")?;
+                let member = extract_string(obj, "member")?;
+                let delta = extract_delta(obj, "delta")?;
+                Ok(CRDTCommand::HashCounter(key, member, delta))
+            }
+            Some("HashSetValue") => {
+                let key = extract_string(obj, "key")?;
+                let member = extract_string(obj, "member")?;
+                let value = extract_value(obj, "value")?;
+                Ok(CRDTCommand::HashSetValue(key, member, value))
+            }
+            Some("HashUnsetKey") => {
+                let key = extract_string(obj, "key")?;
+                let member = extract_string(obj, "member")?;
+                Ok(CRDTCommand::HashUnsetKey(key, member))
+            }
+            _ => Err("Unknown CRDTCommand".into()),
+        }
+    }
+
+    pub fn from_json_array(value: &JsonValue) -> Result<Vec<CRDTCommand>, String> {
+        let commands = value
+            .as_array()
+            .ok_or("Expected a JSON array")?
+            .iter()
+            .map(CRDTCommand::from_json)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(commands)
+    }
+}
+
+fn extract_string(obj: &serde_json::Map<String, JsonValue>, key: &str) -> Result<String, String> {
+    obj.get(key)
+        .and_then(JsonValue::as_str)
+        .map(String::from)
+        .ok_or_else(|| format!("Expected a string for key {}", key))
+}
+
+fn extract_delta(obj: &serde_json::Map<String, JsonValue>, key: &str) -> Result<i64, String> {
+    match obj.get(key) {
+        Some(JsonValue::Number(num)) if num.is_i64() => num
+            .as_i64()
+            .ok_or_else(|| format!("Expected an integer delta for key {}", key)),
+        Some(JsonValue::String(s)) => i64::from_str(s)
+            .map_err(|_| format!("Failed to parse stringified integer for key {}", key)),
+        _ => Err(format!(
+            "Expected an integer or stringified integer delta for key {}",
+            key
+        )),
+    }
+}
+
+fn extract_timestamp(obj: &serde_json::Map<String, JsonValue>, key: &str) -> Result<u64, String> {
+    obj.get(key)
+        .and_then(JsonValue::as_u64)
+        .ok_or_else(|| format!("Expected a timestamp for key {}", key))
+}
+
+fn extract_value(obj: &serde_json::Map<String, JsonValue>, key: &str) -> Result<Value, String> {
+    obj.get(key)
+        .cloned()
+        .map(Value::Json)
+        .ok_or_else(|| format!("Expected a value for key {}", key))
 }

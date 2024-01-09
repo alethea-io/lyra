@@ -52,4 +52,11 @@ impl Config {
             Config::Redis(c) => c.load_cursor().await,
         }
     }
+
+    pub fn get_type(&self) -> &'static str {
+        match self {
+            Config::Postgres(_) => "Postgres",
+            Config::Redis(_) => "Redis",
+        }
+    }
 }

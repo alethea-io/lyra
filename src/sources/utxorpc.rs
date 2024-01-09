@@ -65,34 +65,34 @@ impl Worker {
                 }
             }
             Action::Undo(block) => {
-                // if let Some(chain) = &block.chain {
-                //     match chain {
-                //         Chain::Cardano(block) => {
-                //             if block.body.is_some() {
-                //                 let header = block.header.as_ref().unwrap();
+                if let Some(chain) = &block.chain {
+                    match chain {
+                        Chain::Cardano(block) => {
+                            if block.body.is_some() {
+                                let header = block.header.as_ref().unwrap();
 
-                //                 let evt = ChainEvent::Undo(
-                //                     Point::Specific(header.slot, header.hash.to_vec()),
-                //                     Record::UtxoRpcBlockPayload(block.clone()),
-                //                 );
+                                let evt = ChainEvent::Undo(
+                                    Point::Specific(header.slot, header.hash.to_vec()),
+                                    Record::UtxoRpcBlockPayload(block.clone()),
+                                );
 
-                //                 stage.output.send(evt.into()).await.or_panic()?;
-                //                 stage.chain_tip.set(header.slot as i64);
-                //             }
-                //         }
-                //         Chain::Raw(bytes) => {
-                //             let block = MultiEraBlock::decode(bytes).or_panic()?;
+                                stage.output.send(evt.into()).await.or_panic()?;
+                                stage.chain_tip.set(header.slot as i64);
+                            }
+                        }
+                        Chain::Raw(bytes) => {
+                            let block = MultiEraBlock::decode(bytes).or_panic()?;
 
-                //             let evt = ChainEvent::Undo(
-                //                 Point::Specific(block.slot(), block.hash().to_vec()),
-                //                 Record::RawBlockPayload(bytes.to_vec()),
-                //             );
+                            let evt = ChainEvent::Undo(
+                                Point::Specific(block.slot(), block.hash().to_vec()),
+                                Record::RawBlockPayload(bytes.to_vec()),
+                            );
 
-                //             stage.output.send(evt.into()).await.or_panic()?;
-                //             stage.chain_tip.set(block.slot() as i64);
-                //         }
-                //     }
-                // }
+                            stage.output.send(evt.into()).await.or_panic()?;
+                            stage.chain_tip.set(block.slot() as i64);
+                        }
+                    }
+                }
             }
             Action::Reset(reset) => {
                 stage

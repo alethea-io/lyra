@@ -1,3 +1,4 @@
-import("lyra:reducer").then(({ reduce }) => {
-  globalThis["reduce"] = reduce;
+import("lyra:reducer").then(({ apply, undo }) => {
+  globalThis["apply"] = apply;
+  globalThis["undo"] = undo;
 });

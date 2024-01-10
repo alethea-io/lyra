@@ -1,6 +1,7 @@
 version: "3"
 
 services:
+      
   postgres:
     image: postgres
     container_name: postgres
@@ -17,3 +18,13 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  lyra:
+    image: lyra:v0.1.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./daemon.toml:/etc/lyra/daemon.toml
+      - ./reduce.js:/reduce.js
+    restart: on-failure

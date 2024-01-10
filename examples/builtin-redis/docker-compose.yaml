@@ -1,5 +1,7 @@
 version: "3"
+
 services:
+
   redis:
     image: redis
     container_name: redis
@@ -10,3 +12,12 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  lyra:
+    image: lyra:v0.1.0
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./daemon.toml:/etc/lyra/daemon.toml
+    restart: on-failure

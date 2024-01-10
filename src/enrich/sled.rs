@@ -1,10 +1,13 @@
-use pallas::{
-    codec::minicbor,
-    ledger::traverse::{Era, MultiEraBlock, MultiEraTx, OutputRef},
-};
-use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
+use pallas::codec::minicbor;
+use pallas::ledger::traverse::Era;
+use pallas::ledger::traverse::MultiEraBlock;
+use pallas::ledger::traverse::MultiEraTx;
+use pallas::ledger::traverse::OutputRef;
+use rayon::prelude::IntoParallelRefIterator;
+use rayon::prelude::ParallelIterator;
 use serde::Deserialize;
-use sled::{Db, IVec};
+use sled::Db;
+use sled::IVec;
 
 use gasket::framework::*;
 

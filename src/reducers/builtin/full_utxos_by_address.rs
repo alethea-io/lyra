@@ -28,7 +28,6 @@ impl ReducerConfigTrait for Config {
 
 pub struct Reducer {
     config: Config,
-    // policy: crosscut::policies::RuntimePolicy,
 }
 
 pub fn resolve_datum(utxo: &MultiEraOutput, tx: &MultiEraTx) -> Option<PlutusData> {

@@ -3,7 +3,7 @@ use bb8_postgres::tokio_postgres::NoTls;
 use bb8_postgres::PostgresConnectionManager;
 use gasket::framework::*;
 use serde::Deserialize;
-use tracing::{debug, error, info};
+use tracing::info;
 
 use crate::framework::*;
 

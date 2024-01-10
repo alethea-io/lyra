@@ -46,7 +46,7 @@ impl Config {
         }
     }
 
-    pub async fn load_cursor(&self) -> Result<Breadcrumbs, Error>{
+    pub async fn load_cursor(&self) -> Result<Breadcrumbs, Error> {
         match self {
             Config::Postgres(c) => c.load_cursor().await,
             Config::Redis(c) => c.load_cursor().await,

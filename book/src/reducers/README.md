@@ -1,3 +1,4 @@
 # Reducers
 
-- [Deno](deno.md): custom reducers in js
+- [BuiltIn](builtin.md): reducers in rust
+- [Deno](deno.md): reducers in js

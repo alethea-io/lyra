@@ -14,7 +14,7 @@ use pallas::ledger::traverse::MultiEraBlock;
 use pallas::ledger::traverse::OutputRef;
 use serde::Deserialize;
 use serde_json::json;
-use tracing::{debug, error};
+use tracing::info;
 use utxorpc::proto::cardano::v1 as u5c;
 
 use crate::framework::model::CRDTCommand;
@@ -198,7 +198,8 @@ impl gasket::framework::Worker<Stage> for Worker {
         if let Some(json) = output {
             let event = match stage.storage_type.as_str() {
                 "Redis" => {
-                    let commands: Vec<CRDTCommand> = CRDTCommand::from_json_array(&json).or_panic()?;
+                    let commands: Vec<CRDTCommand> =
+                        CRDTCommand::from_json_array(&json).or_panic()?;
                     ChainEvent::apply(unit.point().clone(), Record::CRDTCommand(commands))
                 }
                 "Postgres" => {
@@ -209,6 +210,8 @@ impl gasket::framework::Worker<Stage> for Worker {
             };
             stage.output.send(event).await.or_retry()?;
         }
+
+        info!("Reduced block {:?}", unit.point());
 
         Ok(())
     }

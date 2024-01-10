@@ -8,6 +8,7 @@ use utxorpc::proto::cardano::v1::Block;
 
 pub mod errors;
 pub mod model;
+pub mod policies;
 
 pub use errors::*;
 

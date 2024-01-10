@@ -1,7 +1,6 @@
-use std::{
-    sync::Mutex,
-    time::{Duration, Instant},
-};
+use std::sync::Mutex;
+use std::time::Duration;
+use std::time::Instant;
 
 use gasket::{metrics::Reading, runtime::Tether};
 use lazy_static::lazy_static;
@@ -96,8 +95,8 @@ impl TuiConsole {
                                 self.chainsync_progress.set_position(x as u64);
                             }
                             (_, "fetched_blocks", Reading::Count(x)) => {
-                                self.chainsync_progress.set_position(x);
-                                self.chainsync_progress.set_message(state);
+                                self.fetched_blocks.set_position(x);
+                                self.fetched_blocks.set_message(state);
                             }
                             ("reducers", "ops_count", Reading::Count(x)) => {
                                 self.reducer_ops_count.set_position(x);

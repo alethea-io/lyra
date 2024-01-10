@@ -17,10 +17,10 @@ type = "Skip"
 
 [reducer]
 type = "Deno"
-main_module = "./examples/deno-postgres/reduce.js"
-storage_command_type = "sql"
+main_module = "/reduce.js"
 use_async = true
 
 [storage]
 type = "Postgres"
-url = "postgresql://postgres:password@localhost:5432/cexplorer"
+url = "postgresql://postgres:password@postgres:5432/cexplorer"
+schema = "public"

@@ -2,13 +2,15 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::str::FromStr;
 
-use pallas::ledger::traverse::{Era, MultiEraOutput, MultiEraTx, OutputRef};
+use pallas::ledger::traverse::Era;
+use pallas::ledger::traverse::MultiEraOutput;
+use pallas::ledger::traverse::MultiEraTx;
+use pallas::ledger::traverse::OutputRef;
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
-use crate::crosscut::policies::{AppliesPolicy, RuntimePolicy};
-
 use super::errors::Error;
+use super::policies::{AppliesPolicy, RuntimePolicy};
 
 #[derive(Default, Debug, Clone)]
 pub struct BlockContext {
@@ -222,7 +224,7 @@ impl CRDTCommand {
 
     pub fn from_json(value: &JsonValue) -> Result<CRDTCommand, String> {
         let obj = value.as_object().ok_or("Expected a JSON object")?;
-    
+
         match obj.get("command").and_then(JsonValue::as_str) {
             Some("SetAdd") => {
                 let set = extract_string(obj, "set")?;

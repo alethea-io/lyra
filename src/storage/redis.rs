@@ -57,9 +57,7 @@ impl gasket::framework::Worker<Stage> for Worker {
                             conn.sadd(key, value).or_restart()?;
                         }
                         model::CRDTCommand::TwoPhaseSetRemove(key, value) => {
-                            conn
-                                .sadd(format!("{}.ts", key), value)
-                                .or_restart()?;
+                            conn.sadd(format!("{}.ts", key), value).or_restart()?;
                         }
                         model::CRDTCommand::SetAdd(key, value) => {
                             conn.sadd(key, value).or_restart()?;

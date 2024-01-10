@@ -6,16 +6,10 @@ Lyra is a indexing engine for the Cardano blockchain. It is a fork of [Scrolls](
 
 ## Usage
 
-### Cargo Run
-
-```bash
-cargo run --bin lyra -- daemon --config examples/deno-postgres/daemon.toml
-```
-
 ### Build Docker Image
 
 ```bash
-docker build -t lyra:v0.1.0 .
+docker build -t lyra .
 ```
 
 ### Run example

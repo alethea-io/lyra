@@ -26,6 +26,11 @@ impl gasket::framework::Worker<Stage> for Worker {
         stage: &mut Stage,
     ) -> Result<WorkSchedule<ChainEvent>, WorkerError> {
         let msg = stage.input.recv().await.or_panic()?;
+
+        if stage.should_finalize {
+            return Ok(WorkSchedule::Done);
+        }
+
         Ok(WorkSchedule::Unit(msg.payload))
     }
 
@@ -61,7 +66,7 @@ impl gasket::framework::Worker<Stage> for Worker {
                     stage.config.schema
                 );
 
-                conn.execute(&query, &[&"default", &cursor_data])
+                conn.execute(&query, &[&stage.config.cursor_name, &cursor_data])
                     .await
                     .or_restart()?;
 
@@ -75,6 +80,10 @@ impl gasket::framework::Worker<Stage> for Worker {
         stage.ops_count.inc(1);
         stage.latest_block.set(point.slot_or_default() as i64);
 
+        if should_finalize(&stage.finalize, &point) {
+            stage.should_finalize = true;
+        }
+
         Ok(())
     }
 }
@@ -84,6 +93,8 @@ impl gasket::framework::Worker<Stage> for Worker {
 pub struct Stage {
     config: Config,
     cursor: Breadcrumbs,
+    finalize: Option<FinalizeConfig>,
+    should_finalize: bool,
 
     pub input: StorageInputPort,
 
@@ -98,6 +109,7 @@ pub struct Stage {
 pub struct Config {
     pub url: String,
     pub schema: String,
+    pub cursor_name: String,
 }
 
 impl Config {
@@ -105,6 +117,8 @@ impl Config {
         let stage = Stage {
             config: self,
             cursor: ctx.cursor.clone(),
+            finalize: ctx.finalize.clone(),
+            should_finalize: false,
             input: Default::default(),
             ops_count: Default::default(),
             latest_block: Default::default(),
@@ -123,8 +137,8 @@ impl Config {
 
         let conn = pool.get().await.map_err(Error::storage)?;
         let query = format!(
-            "SELECT data FROM {}.cursor WHERE name = 'default';",
-            self.schema
+            "SELECT data FROM {}.cursor WHERE name = {};",
+            self.schema, self.cursor_name,
         );
         let row = conn.query_opt(&query, &[]).await.map_err(Error::storage)?;
 

@@ -21,6 +21,7 @@ pub enum Record {
     UtxoRpcBlockPayload(Block),
     CRDTCommand(Vec<CRDTCommand>),
     SQLCommand(Vec<String>),
+    None,
 }
 
 #[derive(Debug, Clone)]
@@ -146,7 +147,7 @@ impl From<ChainConfig> for GenesisValues {
     }
 }
 
-const MAX_BREADCRUMBS: usize = 20;
+const MAX_BREADCRUMBS: usize = 1;
 
 #[derive(Clone)]
 pub struct Breadcrumbs {

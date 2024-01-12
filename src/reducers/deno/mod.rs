@@ -197,6 +197,9 @@ impl gasket::framework::Worker<Stage> for Worker {
 
         if let Some(json) = output {
             let event = match stage.storage_type.as_str() {
+                "None" => {
+                    ChainEvent::apply(unit.point().clone(), Record::None)
+                }
                 "Redis" => {
                     let commands: Vec<CRDTCommand> =
                         CRDTCommand::from_json_array(&json).or_panic()?;

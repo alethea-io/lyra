@@ -29,6 +29,11 @@ impl gasket::framework::Worker<Stage> for Worker {
         stage: &mut Stage,
     ) -> Result<WorkSchedule<ChainEvent>, WorkerError> {
         let msg = stage.input.recv().await.or_panic()?;
+
+        if stage.should_finalize {
+            return Ok(WorkSchedule::Done);
+        }
+        
         Ok(WorkSchedule::Unit(msg.payload))
     }
 
@@ -100,7 +105,8 @@ impl gasket::framework::Worker<Stage> for Worker {
 
                 let cursor_data = serde_json::to_string(&stage.cursor.to_data()).or_panic()?;
 
-                conn.set("cursor", cursor_data).or_restart()?;
+                conn.set(&stage.config.cursor_name, cursor_data)
+                    .or_restart()?;
 
                 redis::cmd("EXEC").query(conn.deref_mut()).or_retry()?;
             }
@@ -112,6 +118,10 @@ impl gasket::framework::Worker<Stage> for Worker {
         stage.ops_count.inc(1);
         stage.latest_block.set(point.slot_or_default() as i64);
 
+        if should_finalize(&stage.finalize, &point) {
+            stage.should_finalize = true;
+        }
+
         Ok(())
     }
 }
@@ -121,6 +131,8 @@ impl gasket::framework::Worker<Stage> for Worker {
 pub struct Stage {
     config: Config,
     cursor: Breadcrumbs,
+    finalize: Option<FinalizeConfig>,
+    should_finalize: bool,
 
     pub input: StorageInputPort,
 
@@ -134,6 +146,7 @@ pub struct Stage {
 #[derive(Default, Deserialize)]
 pub struct Config {
     pub url: String,
+    pub cursor_name: String,
 }
 
 impl Config {
@@ -141,6 +154,8 @@ impl Config {
         let stage = Stage {
             config: self,
             cursor: ctx.cursor.clone(),
+            finalize: ctx.finalize.clone(),
+            should_finalize: false,
             ops_count: Default::default(),
             latest_block: Default::default(),
             input: Default::default(),
@@ -157,7 +172,7 @@ impl Config {
 
         let mut conn = pool.get().map_err(Error::storage)?;
 
-        match conn.get::<_, String>("cursor") {
+        match conn.get::<_, String>(&self.cursor_name) {
             Ok(json) => {
                 let data: Vec<(u64, String)> =
                     serde_json::from_str(&json).map_err(Error::parsing)?;

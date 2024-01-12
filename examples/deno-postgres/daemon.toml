@@ -24,3 +24,4 @@ use_async = true
 type = "Postgres"
 url = "postgresql://postgres:password@postgres:5432/cexplorer"
 schema = "public"
+cursor_name = "default"

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use deno_runtime::deno_core;
@@ -9,8 +10,11 @@ use deno_runtime::worker::MainWorker as DenoWorker;
 use deno_runtime::worker::WorkerOptions;
 use gasket::framework::*;
 use pallas::interop::utxorpc::map_block;
+use pallas::interop::utxorpc::map_plutus_datum;
 use pallas::interop::utxorpc::map_tx_output;
+use pallas::ledger::primitives::babbage;
 use pallas::ledger::traverse::MultiEraBlock;
+use pallas::ledger::traverse::OriginalHash;
 use pallas::ledger::traverse::OutputRef;
 use serde::Deserialize;
 use serde_json::json;
@@ -168,6 +172,15 @@ impl gasket::framework::Worker<Stage> for Worker {
                 let block = MultiEraBlock::decode(block)
                     .map_err(Error::cbor)
                     .or_panic()?;
+
+                let mut datum_map = HashMap::new();
+                for tx in block.txs().into_iter() {
+                    for plutus_datum in tx.plutus_data().iter() {
+                        let hash = plutus_datum.original_hash();
+                        datum_map.insert(hash, plutus_datum.clone());
+                    }
+                }
+
                 let mut block = map_block(&block);
 
                 for tx in block.body.as_mut().unwrap().tx.iter_mut() {
@@ -181,7 +194,18 @@ impl gasket::framework::Worker<Stage> for Worker {
                             let output_ref = OutputRef::new(tx_hash, output_index);
 
                             if let Ok(output) = ctx.find_utxo(&output_ref) {
-                                input.as_output = Some(map_tx_output(&output));
+                                let mut as_output = map_tx_output(&output);
+
+                                match output.datum() {
+                                    Some(babbage::PseudoDatumOption::Hash(x)) => {
+                                        if let Some(datum_value) = datum_map.get(&x) {
+                                            as_output.datum = Some(map_plutus_datum(&datum_value));
+                                        }
+                                    }
+                                    _ => (),
+                                }
+
+                                input.as_output = Some(as_output);
                             }
                         }
                     }
@@ -197,9 +221,7 @@ impl gasket::framework::Worker<Stage> for Worker {
 
         if let Some(json) = output {
             let event = match stage.storage_type.as_str() {
-                "None" => {
-                    ChainEvent::apply(unit.point().clone(), Record::None)
-                }
+                "None" => ChainEvent::apply(unit.point().clone(), Record::None),
                 "Redis" => {
                     let commands: Vec<CRDTCommand> =
                         CRDTCommand::from_json_array(&json).or_panic()?;

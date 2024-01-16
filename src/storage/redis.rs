@@ -33,7 +33,7 @@ impl gasket::framework::Worker<Stage> for Worker {
         if stage.should_finalize {
             return Ok(WorkSchedule::Done);
         }
-        
+
         Ok(WorkSchedule::Unit(msg.payload))
     }
 

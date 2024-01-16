@@ -1,3 +1,4 @@
+use gasket::framework::*;
 use pallas::codec::minicbor;
 use pallas::ledger::traverse::Era;
 use pallas::ledger::traverse::MultiEraBlock;
@@ -8,8 +9,6 @@ use rayon::prelude::ParallelIterator;
 use serde::Deserialize;
 use sled::Db;
 use sled::IVec;
-
-use gasket::framework::*;
 
 use crate::framework::{
     model::BlockContext, ChainEvent, Context, EnrichInputPort, EnrichOutputPort, Error, Record,

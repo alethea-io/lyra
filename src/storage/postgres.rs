@@ -137,7 +137,7 @@ impl Config {
 
         let conn = pool.get().await.map_err(Error::storage)?;
         let query = format!(
-            "SELECT data FROM {}.cursor WHERE name = {};",
+            "SELECT data FROM {}.cursor WHERE name = '{}';",
             self.schema, self.cursor_name,
         );
         let row = conn.query_opt(&query, &[]).await.map_err(Error::storage)?;

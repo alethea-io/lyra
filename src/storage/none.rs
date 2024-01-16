@@ -27,7 +27,7 @@ impl gasket::framework::Worker<Stage> for Worker {
 
     async fn execute(&mut self, unit: &ChainEvent, stage: &mut Stage) -> Result<(), WorkerError> {
         let point = unit.point().clone();
-        
+
         info!("Stored block {:?}", point);
 
         stage.ops_count.inc(1);

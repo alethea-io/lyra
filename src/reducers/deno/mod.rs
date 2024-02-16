@@ -19,7 +19,7 @@ use pallas::ledger::traverse::OutputRef;
 use serde::Deserialize;
 use serde_json::json;
 use tracing::info;
-use utxorpc::proto::cardano::v1 as u5c;
+use utxorpc_spec::utxorpc::v1alpha::cardano as u5c;
 
 use crate::framework::model::CRDTCommand;
 use crate::framework::*;

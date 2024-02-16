@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use pallas::ledger::traverse::wellknown::GenesisValues;
 use pallas::network::miniprotocols::Point;
 use serde::Deserialize;
-use utxorpc::proto::cardano::v1::Block;
+use utxorpc_spec::utxorpc::v1alpha::cardano::Block;
 
 pub mod errors;
 pub mod model;

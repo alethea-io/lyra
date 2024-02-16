@@ -6,13 +6,13 @@ use serde::Deserialize;
 use tonic::transport::Channel;
 use tonic::Streaming;
 use tracing::{debug, error};
-use utxorpc::proto::sync::v1::any_chain_block::Chain;
-use utxorpc::proto::sync::v1::chain_sync_service_client::ChainSyncServiceClient;
-use utxorpc::proto::sync::v1::follow_tip_response::Action;
-use utxorpc::proto::sync::v1::BlockRef;
-use utxorpc::proto::sync::v1::DumpHistoryRequest;
-use utxorpc::proto::sync::v1::FollowTipRequest;
-use utxorpc::proto::sync::v1::FollowTipResponse;
+use utxorpc_spec::utxorpc::v1alpha::sync::any_chain_block::Chain;
+use utxorpc_spec::utxorpc::v1alpha::sync::chain_sync_service_client::ChainSyncServiceClient;
+use utxorpc_spec::utxorpc::v1alpha::sync::follow_tip_response::Action;
+use utxorpc_spec::utxorpc::v1alpha::sync::BlockRef;
+use utxorpc_spec::utxorpc::v1alpha::sync::DumpHistoryRequest;
+use utxorpc_spec::utxorpc::v1alpha::sync::FollowTipRequest;
+use utxorpc_spec::utxorpc::v1alpha::sync::FollowTipResponse;
 
 use crate::framework::*;
 

@@ -18,3 +18,6 @@ docker build -t lyra .
 cd examples/deno-postgres
 docker compose up -d
 ```
+
+## TODO
+- Panic if disconnected from redis db

@@ -46,11 +46,20 @@ impl gasket::framework::Worker<Stage> for Worker {
 
         match record {
             Record::SQLCommand(commands) => {
-                let conn = self.pool.get().await.or_restart()?;
+                let conn = self
+                    .pool
+                    .get()
+                    .await
+                    .expect("Failed to acquire a Postgres connection");
 
-                conn.execute("BEGIN", &[]).await.or_restart()?;
+                conn.execute("BEGIN", &[])
+                    .await
+                    .expect("Failed to begin transaction");
+
                 for command in commands {
-                    conn.execute(&command, &[]).await.or_restart()?;
+                    conn.execute(&command, &[])
+                        .await
+                        .expect("Failed to execute transaction");
                 }
 
                 // Update the cursor state
@@ -68,9 +77,11 @@ impl gasket::framework::Worker<Stage> for Worker {
 
                 conn.execute(&query, &[&stage.config.cursor_name, &cursor_data])
                     .await
-                    .or_restart()?;
+                    .expect("Failed to save cursor");
 
-                conn.execute("COMMIT", &[]).await.or_restart()?;
+                conn.execute("COMMIT", &[])
+                    .await
+                    .expect("Failed to commit transaction");
             }
             _ => {}
         }

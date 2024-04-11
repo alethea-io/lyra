@@ -47,7 +47,7 @@ impl Worker {
                                     Record::UtxoRpcBlockPayload(block.clone()),
                                 );
 
-                                // Skip the first block returned on restart
+                                // Skip the "cursor" block returned on restart
                                 if stage.cursor.latest_known_point().map_or(true, |p| {
                                     p != Point::Specific(header.slot, header.hash.to_vec())
                                 }) {
@@ -64,7 +64,7 @@ impl Worker {
                                 Record::RawBlockPayload(bytes.to_vec()),
                             );
 
-                            // Skip the first block returned on restart
+                            // Skip the "cursor" block returned on restart
                             if stage.cursor.latest_known_point().map_or(true, |p| {
                                 p != Point::Specific(block.slot(), block.hash().to_vec())
                             }) {

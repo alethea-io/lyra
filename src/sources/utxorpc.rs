@@ -46,8 +46,14 @@ impl Worker {
                                     Point::Specific(header.slot, header.hash.to_vec()),
                                     Record::UtxoRpcBlockPayload(block.clone()),
                                 );
-                                stage.output.send(evt.into()).await.or_panic()?;
-                                stage.chain_tip.set(header.slot as i64);
+
+                                // Skip the first block returned on restart
+                                if stage.cursor.latest_known_point().map_or(true, |p| {
+                                    p != Point::Specific(header.slot, header.hash.to_vec())
+                                }) {
+                                    stage.output.send(evt.into()).await.or_panic()?;
+                                    stage.chain_tip.set(header.slot as i64);
+                                }
                             }
                         }
                         Chain::Raw(bytes) => {
@@ -58,8 +64,13 @@ impl Worker {
                                 Record::RawBlockPayload(bytes.to_vec()),
                             );
 
-                            stage.output.send(evt.into()).await.or_panic()?;
-                            stage.chain_tip.set(block.slot() as i64);
+                            // Skip the first block returned on restart
+                            if stage.cursor.latest_known_point().map_or(true, |p| {
+                                p != Point::Specific(block.slot(), block.hash().to_vec())
+                            }) {
+                                stage.output.send(evt.into()).await.or_panic()?;
+                                stage.chain_tip.set(block.slot() as i64);
+                            }
                         }
                     }
                 }

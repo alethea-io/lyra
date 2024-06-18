@@ -5,10 +5,12 @@ use crate::framework::{errors::Error, *};
 
 pub mod builtin;
 pub mod deno;
+pub mod wasm;
 
 pub enum Bootstrapper {
     BuiltIn(builtin::Stage),
     Deno(deno::Stage),
+    Wasm(wasm::Stage),
 }
 
 impl StageBootstrapper for Bootstrapper {
@@ -16,6 +18,7 @@ impl StageBootstrapper for Bootstrapper {
         match self {
             Bootstrapper::BuiltIn(p) => p.output.connect(adapter),
             Bootstrapper::Deno(p) => p.output.connect(adapter),
+            Bootstrapper::Wasm(p) => p.output.connect(adapter),
         }
     }
 
@@ -23,6 +26,7 @@ impl StageBootstrapper for Bootstrapper {
         match self {
             Bootstrapper::BuiltIn(p) => p.input.connect(adapter),
             Bootstrapper::Deno(p) => p.input.connect(adapter),
+            Bootstrapper::Wasm(p) => p.input.connect(adapter),
         }
     }
 
@@ -30,6 +34,7 @@ impl StageBootstrapper for Bootstrapper {
         match self {
             Bootstrapper::BuiltIn(s) => gasket::runtime::spawn_stage(s, policy),
             Bootstrapper::Deno(s) => gasket::runtime::spawn_stage(s, policy),
+            Bootstrapper::Wasm(s) => gasket::runtime::spawn_stage(s, policy),
         }
     }
 }
@@ -39,6 +44,7 @@ impl StageBootstrapper for Bootstrapper {
 pub enum Config {
     BuiltIn(builtin::Config),
     Deno(deno::Config),
+    Wasm(wasm::Config),
 }
 
 impl Config {
@@ -46,6 +52,7 @@ impl Config {
         match self {
             Config::BuiltIn(c) => Ok(Bootstrapper::BuiltIn(c.bootstrapper(ctx)?)),
             Config::Deno(c) => Ok(Bootstrapper::Deno(c.bootstrapper(ctx)?)),
+            Config::Wasm(c) => Ok(Bootstrapper::Wasm(c.bootstrapper(ctx)?)),
         }
     }
 }

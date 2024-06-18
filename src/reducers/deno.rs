@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 use deno_runtime::deno_core;
@@ -9,13 +8,6 @@ use deno_runtime::permissions::PermissionsContainer;
 use deno_runtime::worker::MainWorker as DenoWorker;
 use deno_runtime::worker::WorkerOptions;
 use gasket::framework::*;
-use pallas::interop::utxorpc::map_block;
-use pallas::interop::utxorpc::map_plutus_datum;
-use pallas::interop::utxorpc::map_tx_output;
-use pallas::ledger::primitives::babbage;
-use pallas::ledger::traverse::MultiEraBlock;
-use pallas::ledger::traverse::OriginalHash;
-use pallas::ledger::traverse::OutputRef;
 use serde::Deserialize;
 use serde_json::json;
 use tracing::info;
@@ -91,7 +83,14 @@ async fn setup_deno(main_module: &PathBuf) -> Result<DenoWorker, WorkerError> {
         .await
         .unwrap();
 
-    let runtime_code = deno_core::FastString::from_static(include_str!("./runtime.js"));
+    let runtime_code = deno_core::FastString::from_static(
+        r#"
+        import("lyra:reducer").then(({ apply, undo }) => {
+          globalThis["apply"] = apply;
+          globalThis["undo"] = undo;
+        });
+        "#,
+    );
 
     deno.execute_script("[lyra:runtime.js]", runtime_code)
         .or_panic()?;
@@ -168,51 +167,6 @@ impl gasket::framework::Worker<Stage> for Worker {
         };
 
         let output = match record {
-            Record::EnrichedBlockPayload(block, ctx) => {
-                let block = MultiEraBlock::decode(block)
-                    .map_err(Error::cbor)
-                    .or_panic()?;
-
-                let mut datum_map = HashMap::new();
-                for tx in block.txs().into_iter() {
-                    for plutus_datum in tx.plutus_data().iter() {
-                        let hash = plutus_datum.original_hash();
-                        datum_map.insert(hash, plutus_datum.clone());
-                    }
-                }
-
-                let mut block = map_block(&block);
-
-                for tx in block.body.as_mut().unwrap().tx.iter_mut() {
-                    for input in tx.inputs.iter_mut() {
-                        if input.tx_hash.len() == 32 {
-                            let mut hash_bytes = [0u8; 32];
-                            hash_bytes.copy_from_slice(&input.tx_hash);
-
-                            let tx_hash = pallas::crypto::hash::Hash::from(hash_bytes);
-                            let output_index = input.output_index as u64;
-                            let output_ref = OutputRef::new(tx_hash, output_index);
-
-                            if let Ok(output) = ctx.find_utxo(&output_ref) {
-                                let mut as_output = map_tx_output(&output);
-
-                                match output.datum() {
-                                    Some(babbage::PseudoDatumOption::Hash(x)) => {
-                                        if let Some(datum_value) = datum_map.get(&x) {
-                                            as_output.datum = Some(map_plutus_datum(&datum_value));
-                                        }
-                                    }
-                                    _ => (),
-                                }
-
-                                input.as_output = Some(as_output);
-                            }
-                        }
-                    }
-                }
-
-                self.reduce(call_snippet, block).await.unwrap()
-            }
             Record::UtxoRpcBlockPayload(block) => {
                 self.reduce(call_snippet, block.clone()).await.unwrap()
             }

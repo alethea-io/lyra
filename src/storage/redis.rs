@@ -7,7 +7,7 @@ use r2d2_redis::redis::ToRedisArgs;
 use r2d2_redis::RedisConnectionManager;
 use serde::Deserialize;
 use std::ops::DerefMut;
-use tracing::info;
+use tracing::{error, info};
 
 use crate::framework::*;
 
@@ -98,6 +98,17 @@ impl gasket::framework::Worker<Stage> for Worker {
                             conn.hdel(member, key).or_restart()?;
                         }
                     }
+                }
+
+                if !stage.cursor.is_empty()
+                    && point.slot_or_default()
+                        <= stage.cursor.latest_known_point().unwrap().slot_or_default()
+                {
+                    redis::cmd("DISCARD")
+                        .query::<()>(conn.deref_mut())
+                        .or_restart()?;
+                    error!("Already processed block {:?}", point);
+                    return Err(WorkerError::Panic);
                 }
 
                 // Update the cursor state

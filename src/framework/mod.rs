@@ -115,12 +115,6 @@ pub type StorageOutputPort = gasket::messaging::OutputPort<ChainEvent>;
 pub type OutputAdapter = gasket::messaging::tokio::ChannelSendAdapter<ChainEvent>;
 pub type InputAdapter = gasket::messaging::tokio::ChannelRecvAdapter<ChainEvent>;
 
-pub trait StageBootstrapper {
-    fn connect_output(&mut self, adapter: OutputAdapter);
-    fn connect_input(&mut self, adapter: InputAdapter);
-    fn spawn(self, policy: gasket::runtime::Policy) -> gasket::runtime::Tether;
-}
-
 #[derive(Deserialize, Clone)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum ChainConfig {

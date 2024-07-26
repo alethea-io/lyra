@@ -13,24 +13,24 @@ pub enum Bootstrapper {
     Wasm(wasm::Stage),
 }
 
-impl StageBootstrapper for Bootstrapper {
-    fn connect_output(&mut self, adapter: OutputAdapter) {
+impl Bootstrapper {
+    pub fn borrow_output(&mut self) -> &mut ReducerOutputPort {
         match self {
-            Bootstrapper::BuiltIn(p) => p.output.connect(adapter),
-            Bootstrapper::Deno(p) => p.output.connect(adapter),
-            Bootstrapper::Wasm(p) => p.output.connect(adapter),
+            Bootstrapper::BuiltIn(p) => &mut p.output,
+            Bootstrapper::Deno(p) => &mut p.output,
+            Bootstrapper::Wasm(p) => &mut p.output,
         }
     }
 
-    fn connect_input(&mut self, adapter: InputAdapter) {
+    pub fn borrow_input(&mut self) -> &mut ReducerInputPort {
         match self {
-            Bootstrapper::BuiltIn(p) => p.input.connect(adapter),
-            Bootstrapper::Deno(p) => p.input.connect(adapter),
-            Bootstrapper::Wasm(p) => p.input.connect(adapter),
+            Bootstrapper::BuiltIn(p) => &mut p.input,
+            Bootstrapper::Deno(p) => &mut p.input,
+            Bootstrapper::Wasm(p) => &mut p.input,
         }
     }
 
-    fn spawn(self, policy: gasket::runtime::Policy) -> Tether {
+    pub fn spawn(self, policy: gasket::runtime::Policy) -> Tether {
         match self {
             Bootstrapper::BuiltIn(s) => gasket::runtime::spawn_stage(s, policy),
             Bootstrapper::Deno(s) => gasket::runtime::spawn_stage(s, policy),

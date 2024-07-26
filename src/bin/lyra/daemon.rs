@@ -1,20 +1,18 @@
 use clap;
-use gasket::runtime::Tether;
-use lyra::enrich;
+use gasket::daemon::Daemon;
 use lyra::framework::*;
 use lyra::reducers;
 use lyra::sources;
 use lyra::storage;
 use serde::Deserialize;
 use std::time::Duration;
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::console;
 
 #[derive(Deserialize)]
 struct ConfigRoot {
     source: sources::Config,
-    enrich: Option<enrich::Config>,
     reducer: reducers::Config,
     storage: storage::Config,
     intersect: IntersectConfig,
@@ -28,7 +26,7 @@ impl ConfigRoot {
         let mut s = config::Config::builder();
 
         // our base config will always be in /etc/lyra
-        s = s.add_source(config::File::with_name("/etc/lyra/daemon.toml").required(false));
+        s = s.add_source(config::File::with_name("/etc/lyra/lyra.toml").required(false));
 
         // but we can override it by having a file in the working dir
         s = s.add_source(config::File::with_name("lyra.toml").required(false));
@@ -42,45 +40,6 @@ impl ConfigRoot {
         s = s.add_source(config::Environment::with_prefix("LYRA").separator("_"));
 
         s.build()?.try_deserialize()
-    }
-}
-
-struct Runtime {
-    source: Tether,
-    enrich: Tether,
-    reducer: Tether,
-    storage: Tether,
-}
-impl Runtime {
-    fn all_tethers(&self) -> impl Iterator<Item = &Tether> {
-        vec![&self.source, &self.enrich, &self.reducer, &self.storage].into_iter()
-    }
-
-    fn should_stop(&self) -> bool {
-        self.all_tethers().any(|tether| match tether.check_state() {
-            gasket::runtime::TetherState::Alive(x) => {
-                matches!(x, gasket::runtime::StagePhase::Ended)
-            }
-            _ => true,
-        })
-    }
-
-    fn shutdown(&self) {
-        for tether in self.all_tethers() {
-            let state = tether.check_state();
-            warn!("dismissing stage: {} with state {:?}", tether.name(), state);
-            tether.dismiss_stage().expect("stage stops");
-
-            // Can't join the stage because there's a risk of deadlock, usually
-            // because a stage gets stuck sending into a port which depends on a
-            // different stage not yet dismissed. The solution is to either
-            // create a DAG of dependencies and dismiss in the
-            // correct order, or implement a 2-phase teardown where
-            // ports are disconnected and flushed before joining the
-            // stage.
-
-            //tether.join_stage();
-        }
     }
 }
 
@@ -106,42 +65,23 @@ fn define_gasket_policy(config: Option<&gasket::retries::Policy>) -> gasket::run
     }
 }
 
-fn chain_stages<'a>(
-    source: &'a mut dyn StageBootstrapper,
-    enrich: &'a mut dyn StageBootstrapper,
-    reducer: &'a mut dyn StageBootstrapper,
-    storage: &'a mut dyn StageBootstrapper,
-) {
-    let (to_next, from_prev) = gasket::messaging::tokio::mpsc_channel(100);
-    source.connect_output(to_next);
-    enrich.connect_input(from_prev);
-
-    let (to_next, from_prev) = gasket::messaging::tokio::mpsc_channel(100);
-    enrich.connect_output(to_next);
-    reducer.connect_input(from_prev);
-
-    let (to_next, from_prev) = gasket::messaging::tokio::mpsc_channel(100);
-    reducer.connect_output(to_next);
-    storage.connect_input(from_prev);
-}
-
-fn bootstrap(
+fn connect_stages(
     mut source: sources::Bootstrapper,
-    mut enrich: enrich::Bootstrapper,
     mut reducer: reducers::Bootstrapper,
     mut storage: storage::Bootstrapper,
     policy: gasket::runtime::Policy,
-) -> Result<Runtime, Error> {
-    chain_stages(&mut source, &mut enrich, &mut reducer, &mut storage);
+) -> Result<Daemon, Error> {
+    gasket::messaging::tokio::connect_ports(source.borrow_output(), reducer.borrow_input(), 100);
+    gasket::messaging::tokio::connect_ports(reducer.borrow_output(), storage.borrow_input(), 100);
 
-    let runtime = Runtime {
-        source: source.spawn(policy.clone()),
-        enrich: enrich.spawn(policy.clone()),
-        reducer: reducer.spawn(policy.clone()),
-        storage: storage.spawn(policy.clone()),
-    };
+    let mut tethers = vec![];
+    tethers.push(source.spawn(policy.clone()));
+    tethers.push(reducer.spawn(policy.clone()));
+    tethers.push(storage.spawn(policy));
 
-    Ok(runtime)
+    let daemon = Daemon::new(tethers);
+
+    Ok(daemon)
 }
 
 pub fn run(args: &Args) -> Result<(), Error> {
@@ -158,6 +98,7 @@ pub fn run(args: &Args) -> Result<(), Error> {
     let storage_type = config.storage.get_type().to_owned();
 
     let cursor = load_cursor_sync(&config.storage).unwrap();
+
     if cursor.is_empty() {
         info!("No cursor found");
     } else {
@@ -174,26 +115,18 @@ pub fn run(args: &Args) -> Result<(), Error> {
     };
 
     let source = config.source.bootstrapper(&ctx)?;
-    let enrich = config
-        .enrich
-        .unwrap_or(enrich::Config::default())
-        .bootstrapper(&ctx)?;
-
     let reducer = config.reducer.bootstrapper(&ctx)?;
     let storage = config.storage.bootstrapper(&ctx)?;
 
     let retries = define_gasket_policy(config.retries.as_ref());
-    let runtime = bootstrap(source, enrich, reducer, storage, retries)?;
 
-    info!("Lyra is running...");
+    let daemon = connect_stages(source, reducer, storage, retries)?;
 
-    while !runtime.should_stop() {
-        console::refresh(&args.console, runtime.all_tethers());
-        std::thread::sleep(Duration::from_millis(1500));
-    }
+    info!("lyra is running...");
 
-    info!("Lyra is stopping...");
-    runtime.shutdown();
+    daemon.block();
+
+    info!("lyra is stopping");
 
     Ok(())
 }

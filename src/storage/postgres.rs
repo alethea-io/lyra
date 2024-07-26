@@ -3,7 +3,7 @@ use bb8_postgres::tokio_postgres::NoTls;
 use bb8_postgres::PostgresConnectionManager;
 use gasket::framework::*;
 use serde::Deserialize;
-use tracing::info;
+use tracing::{error, info};
 
 use crate::framework::*;
 
@@ -60,6 +60,17 @@ impl gasket::framework::Worker<Stage> for Worker {
                     conn.execute(&command, &[])
                         .await
                         .expect("Failed to execute transaction");
+                }
+
+                if !stage.cursor.is_empty()
+                    && point.slot_or_default()
+                        <= stage.cursor.latest_known_point().unwrap().slot_or_default()
+                {
+                    conn.execute("ROLLBACK", &[])
+                        .await
+                        .expect("Failed to rollback transaction");
+                    error!("Already processed block {:?}", point);
+                    return Err(WorkerError::Panic);
                 }
 
                 // Update the cursor state

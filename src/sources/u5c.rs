@@ -1,14 +1,13 @@
 use futures::StreamExt;
 use gasket::framework::*;
-use pallas::ledger::traverse::MultiEraBlock;
 use pallas::network::miniprotocols::Point;
 use serde::Deserialize;
 use tonic::transport::Channel;
 use tonic::Streaming;
 use tracing::{debug, error};
 use utxorpc_spec::utxorpc::v1alpha::sync::any_chain_block::Chain;
-use utxorpc_spec::utxorpc::v1alpha::sync::chain_sync_service_client::ChainSyncServiceClient;
 use utxorpc_spec::utxorpc::v1alpha::sync::follow_tip_response::Action;
+use utxorpc_spec::utxorpc::v1alpha::sync::sync_service_client::SyncServiceClient;
 use utxorpc_spec::utxorpc::v1alpha::sync::BlockRef;
 use utxorpc_spec::utxorpc::v1alpha::sync::DumpHistoryRequest;
 use utxorpc_spec::utxorpc::v1alpha::sync::FollowTipRequest;
@@ -27,7 +26,7 @@ fn point_to_blockref(point: Point) -> Option<BlockRef> {
 }
 
 pub struct Worker {
-    client: ChainSyncServiceClient<Channel>,
+    client: SyncServiceClient<Channel>,
     stream: Option<Streaming<FollowTipResponse>>,
     intersect: Option<BlockRef>,
     max_items_per_page: u32,
@@ -56,22 +55,6 @@ impl Worker {
                                 }
                             }
                         }
-                        Chain::Raw(bytes) => {
-                            let block = MultiEraBlock::decode(bytes).or_panic()?;
-
-                            let evt = ChainEvent::Apply(
-                                Point::Specific(block.slot(), block.hash().to_vec()),
-                                Record::RawBlockPayload(bytes.to_vec()),
-                            );
-
-                            // Skip the "cursor" block returned on restart
-                            if stage.cursor.latest_known_point().map_or(true, |p| {
-                                p != Point::Specific(block.slot(), block.hash().to_vec())
-                            }) {
-                                stage.output.send(evt.into()).await.or_panic()?;
-                                stage.chain_tip.set(block.slot() as i64);
-                            }
-                        }
                     }
                 }
             }
@@ -90,17 +73,6 @@ impl Worker {
                                 stage.output.send(evt.into()).await.or_panic()?;
                                 stage.chain_tip.set(header.slot as i64);
                             }
-                        }
-                        Chain::Raw(bytes) => {
-                            let block = MultiEraBlock::decode(bytes).or_panic()?;
-
-                            let evt = ChainEvent::Undo(
-                                Point::Specific(block.slot(), block.hash().to_vec()),
-                                Record::RawBlockPayload(bytes.to_vec()),
-                            );
-
-                            stage.output.send(evt.into()).await.or_panic()?;
-                            stage.chain_tip.set(block.slot() as i64);
                         }
                     }
                 }
@@ -183,7 +155,7 @@ impl gasket::framework::Worker<Stage> for Worker {
     async fn bootstrap(stage: &Stage) -> Result<Self, WorkerError> {
         debug!("connecting");
 
-        let client = ChainSyncServiceClient::connect(stage.config.url.clone())
+        let client = SyncServiceClient::connect(stage.config.url.clone())
             .await
             .or_panic()?;
 

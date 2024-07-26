@@ -13,20 +13,16 @@ pub enum Bootstrapper {
     Redis(redis::Stage),
 }
 
-impl StageBootstrapper for Bootstrapper {
-    fn connect_output(&mut self, _: OutputAdapter) {
-        panic!("attempted to use storage stage as sender");
-    }
-
-    fn connect_input(&mut self, adapter: InputAdapter) {
+impl Bootstrapper {
+    pub fn borrow_input(&mut self) -> &mut ReducerInputPort {
         match self {
-            Bootstrapper::None(p) => p.input.connect(adapter),
-            Bootstrapper::Postgres(p) => p.input.connect(adapter),
-            Bootstrapper::Redis(p) => p.input.connect(adapter),
+            Bootstrapper::None(p) => &mut p.input,
+            Bootstrapper::Postgres(p) => &mut p.input,
+            Bootstrapper::Redis(p) => &mut p.input,
         }
     }
 
-    fn spawn(self, policy: gasket::runtime::Policy) -> Tether {
+    pub fn spawn(self, policy: gasket::runtime::Policy) -> Tether {
         match self {
             Bootstrapper::None(x) => gasket::runtime::spawn_stage(x, policy),
             Bootstrapper::Postgres(x) => gasket::runtime::spawn_stage(x, policy),

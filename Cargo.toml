@@ -24,7 +24,7 @@ gasket = { version = "0.8.0", features = ["derive"] }
 hex = "0.4.3"
 indicatif = { version = "0.17.0-rc.11" }
 lazy_static = "1.4.0"
-pallas = "0.29.0"
+pallas = { git = "https://github.com/txpipe/pallas.git" }
 r2d2_redis = "0.14.0"
 sled = "0.34.7"
 serde = { version = "1.0.136", features = ["derive"] }

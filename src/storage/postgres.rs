@@ -1,3 +1,5 @@
+use core::panic;
+
 use bb8_postgres::bb8::Pool;
 use bb8_postgres::tokio_postgres::NoTls;
 use bb8_postgres::PostgresConnectionManager;
@@ -35,14 +37,11 @@ impl gasket::framework::Worker<Stage> for Worker {
     }
 
     async fn execute(&mut self, unit: &ChainEvent, stage: &mut Stage) -> Result<(), WorkerError> {
-        let point = unit.point().clone();
-        let record = unit.record().cloned();
-
-        if record.is_none() {
-            return Ok(());
-        }
-
-        let record = record.unwrap();
+        let (point, record, is_apply) = match unit {
+            ChainEvent::Apply(point, record) => (point, record, true),
+            ChainEvent::Undo(point, record) => (point, record, false),
+            ChainEvent::Reset(_) => return Ok(()),
+        };
 
         match record {
             Record::SQLCommand(commands) => {
@@ -57,24 +56,36 @@ impl gasket::framework::Worker<Stage> for Worker {
                     .expect("Failed to begin transaction");
 
                 for command in commands {
-                    conn.execute(&command, &[])
+                    conn.execute(command, &[])
                         .await
                         .expect("Failed to execute transaction");
                 }
 
-                if !stage.cursor.is_empty()
-                    && point.slot_or_default()
-                        <= stage.cursor.latest_known_point().unwrap().slot_or_default()
-                {
-                    conn.execute("ROLLBACK", &[])
-                        .await
-                        .expect("Failed to rollback transaction");
-                    error!("Already processed block {:?}", point);
-                    return Err(WorkerError::Panic);
+                if is_apply {
+                    if !stage.cursor.is_empty()
+                        && point.slot_or_default()
+                            <= stage.cursor.latest_known_point().unwrap().slot_or_default()
+                    {
+                        conn.execute("ROLLBACK", &[])
+                            .await
+                            .expect("Failed to rollback transaction");
+                        error!("Already processed block {:?}", point);
+                        return Err(WorkerError::Panic);
+                    }
+                    stage.cursor.track(point.clone());
+                } else {
+                    if !stage.cursor.is_empty()
+                        && point.slot_or_default()
+                            > stage.cursor.latest_known_point().unwrap().slot_or_default()
+                    {
+                        conn.execute("ROLLBACK", &[])
+                            .await
+                            .expect("Failed to rollback transaction");
+                        error!("Cannot undo future block {:?}", point);
+                        return Err(WorkerError::Panic);
+                    }
+                    stage.cursor.untrack(point.clone());
                 }
-
-                // Update the cursor state
-                stage.cursor.track(point.clone());
 
                 let cursor_data = serde_json::to_string(&stage.cursor.to_data()).or_panic()?;
 
@@ -94,10 +105,16 @@ impl gasket::framework::Worker<Stage> for Worker {
                     .await
                     .expect("Failed to commit transaction");
             }
-            _ => {}
+            _ => {
+                panic!("The postgres storage stage only supports SQLCommand records");
+            }
         }
 
-        info!("Stored block {:?}", point);
+        if is_apply {
+            info!("Stored block {:?}", point);
+        } else {
+            info!("Removed block {:?}", point);
+        }
 
         stage.ops_count.inc(1);
         stage.latest_block.set(point.slot_or_default() as i64);
@@ -166,7 +183,7 @@ impl Config {
 
         match row {
             Some(row) => {
-                let json = row.get::<_, String>("data");
+                let json: String = row.get("data");
                 let data: Vec<(u64, String)> =
                     serde_json::from_str(&json).map_err(Error::parsing)?;
                 Breadcrumbs::from_data(data)

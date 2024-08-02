@@ -38,14 +38,11 @@ impl gasket::framework::Worker<Stage> for Worker {
     }
 
     async fn execute(&mut self, unit: &ChainEvent, stage: &mut Stage) -> Result<(), WorkerError> {
-        let point = unit.point().clone();
-        let record = unit.record().cloned();
-
-        if record.is_none() {
-            return Ok(());
-        }
-
-        let record = record.unwrap();
+        let (point, record, is_apply) = match unit {
+            ChainEvent::Apply(point, record) => (point, record.clone(), true),
+            ChainEvent::Undo(point, record) => (point, record.clone(), false),
+            ChainEvent::Reset(_) => return Ok(()),
+        };
 
         match record {
             Record::CRDTCommand(commands) => {
@@ -100,19 +97,31 @@ impl gasket::framework::Worker<Stage> for Worker {
                     }
                 }
 
-                if !stage.cursor.is_empty()
-                    && point.slot_or_default()
-                        <= stage.cursor.latest_known_point().unwrap().slot_or_default()
-                {
-                    redis::cmd("DISCARD")
-                        .query::<()>(conn.deref_mut())
-                        .or_restart()?;
-                    error!("Already processed block {:?}", point);
-                    return Err(WorkerError::Panic);
+                if is_apply {
+                    if !stage.cursor.is_empty()
+                        && point.slot_or_default()
+                            <= stage.cursor.latest_known_point().unwrap().slot_or_default()
+                    {
+                        redis::cmd("DISCARD")
+                            .query::<()>(conn.deref_mut())
+                            .or_restart()?;
+                        error!("Already processed block {:?}", point);
+                        return Err(WorkerError::Panic);
+                    }
+                    stage.cursor.track(point.clone());
+                } else {
+                    if !stage.cursor.is_empty()
+                        && point.slot_or_default()
+                            > stage.cursor.latest_known_point().unwrap().slot_or_default()
+                    {
+                        redis::cmd("DISCARD")
+                            .query::<()>(conn.deref_mut())
+                            .or_restart()?;
+                        error!("Cannot undo future block {:?}", point);
+                        return Err(WorkerError::Panic);
+                    }
+                    stage.cursor.untrack(point.clone());
                 }
-
-                // Update the cursor state
-                stage.cursor.track(point.clone());
 
                 let cursor_data = serde_json::to_string(&stage.cursor.to_data()).or_panic()?;
 
@@ -121,10 +130,16 @@ impl gasket::framework::Worker<Stage> for Worker {
 
                 redis::cmd("EXEC").query(conn.deref_mut()).or_retry()?;
             }
-            _ => todo!(),
+            _ => {
+                panic!("The redis storage stage only supports CRDTCommand records");
+            }
         }
 
-        info!("Stored block {:?}", point);
+        if is_apply {
+            info!("Stored block {:?}", point);
+        } else {
+            info!("Removed block {:?}", point);
+        }
 
         stage.ops_count.inc(1);
         stage.latest_block.set(point.slot_or_default() as i64);

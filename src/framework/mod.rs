@@ -141,7 +141,7 @@ impl From<ChainConfig> for GenesisValues {
     }
 }
 
-const MAX_BREADCRUMBS: usize = 1;
+const MAX_BREADCRUMBS: usize = 16;
 
 #[derive(Clone)]
 pub struct Breadcrumbs {
@@ -202,6 +202,19 @@ impl Breadcrumbs {
         // if we have too many points, remove the older ones
         if self.state.len() > MAX_BREADCRUMBS {
             self.state.pop_back();
+        }
+    }
+
+    pub fn untrack(&mut self, point: Point) {
+        if let Some(latest_known_point) = self.latest_known_point() {
+            if point == latest_known_point {
+                self.state.pop_front();
+            } else {
+                panic!(
+                    "Attempting to undo point {:?} when the latest point is {:?}",
+                    point, latest_known_point
+                );
+            }
         }
     }
 

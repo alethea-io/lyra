@@ -126,8 +126,6 @@ impl Worker {
 
                 stage.output.send(evt.into()).await.or_panic()?;
 
-                stage.cursor.track(point);
-
                 stage.chain_tip.set(tip.0.slot_or_default() as i64);
                 stage.current_slot.set(slot as i64);
                 stage.ops_count.inc(1);
@@ -145,8 +143,6 @@ impl Worker {
                     .send(ChainEvent::reset(point.clone()))
                     .await
                     .or_panic()?;
-
-                stage.cursor.track(point.clone());
 
                 stage.chain_tip.set(tip.0.slot_or_default() as i64);
                 stage.current_slot.set(point.slot_or_default() as i64);

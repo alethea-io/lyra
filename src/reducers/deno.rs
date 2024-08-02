@@ -8,6 +8,8 @@ use deno_runtime::permissions::PermissionsContainer;
 use deno_runtime::worker::MainWorker as DenoWorker;
 use deno_runtime::worker::WorkerOptions;
 use gasket::framework::*;
+use gasket::messaging::Message;
+use pallas::network::miniprotocols::Point;
 use serde::Deserialize;
 use serde_json::json;
 use tracing::info;
@@ -153,45 +155,54 @@ impl gasket::framework::Worker<Stage> for Worker {
     }
 
     async fn execute(&mut self, unit: &ChainEvent, stage: &mut Stage) -> Result<(), WorkerError> {
-        let record = unit.record();
-        if record.is_none() {
-            return Ok(());
-        }
-
-        let record = record.unwrap();
-
-        let call_snippet = match unit {
-            ChainEvent::Apply(_, _) => stage.call_snippet.replace("METHOD", "apply"),
-            ChainEvent::Undo(_, _) => stage.call_snippet.replace("METHOD", "undo"),
+        let (point, record, is_apply) = match unit {
+            ChainEvent::Apply(point, record) => (point, record, true),
+            ChainEvent::Undo(point, record) => (point, record, false),
             ChainEvent::Reset(_) => return Ok(()),
         };
 
+        let call_snippet = if is_apply {
+            stage.call_snippet.replace("METHOD", "apply")
+        } else {
+            stage.call_snippet.replace("METHOD", "undo")
+        };
+
         let output = match record {
-            Record::UtxoRpcBlockPayload(block) => {
-                self.reduce(call_snippet, block.clone()).await.unwrap()
-            }
-            _ => todo!(),
+            Record::UtxoRpcBlockPayload(block) => self.reduce(call_snippet, block.clone()).await?,
+            _ => return Ok(()),
         };
 
         if let Some(json) = output {
             let event = match stage.storage_type.as_str() {
-                "None" => ChainEvent::apply(unit.point().clone(), Record::None),
+                "None" => create_chain_event(point.clone(), Record::None, is_apply),
                 "Redis" => {
                     let commands: Vec<CRDTCommand> =
                         CRDTCommand::from_json_array(&json).or_panic()?;
-                    ChainEvent::apply(unit.point().clone(), Record::CRDTCommand(commands))
+                    create_chain_event(point.clone(), Record::CRDTCommand(commands), is_apply)
                 }
                 "Postgres" => {
                     let commands: Vec<String> = serde_json::from_value(json).or_panic()?;
-                    ChainEvent::apply(unit.point().clone(), Record::SQLCommand(commands))
+                    create_chain_event(point.clone(), Record::SQLCommand(commands), is_apply)
                 }
                 _ => return Err(WorkerError::Panic),
             };
             stage.output.send(event).await.or_retry()?;
         }
 
-        info!("Reduced block {:?}", unit.point());
+        if is_apply {
+            info!("Processed apply for block {:?}", point);
+        } else {
+            info!("Processed undo for block {:?}", point);
+        }
 
         Ok(())
+    }
+}
+
+fn create_chain_event(point: Point, record: Record, is_apply: bool) -> Message<ChainEvent> {
+    if is_apply {
+        ChainEvent::apply(point, record)
+    } else {
+        ChainEvent::undo(point, record)
     }
 }

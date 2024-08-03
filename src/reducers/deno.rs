@@ -45,14 +45,14 @@ pub fn op_put_record(
 
 #[derive(Deserialize)]
 pub struct Config {
-    main_module: String,
+    reducer_module: String,
     use_async: bool,
 }
 
 impl Config {
     pub fn bootstrapper(self, ctx: &Context) -> Result<Stage, Error> {
         let stage = Stage {
-            main_module: PathBuf::from(self.main_module),
+            reducer_module: PathBuf::from(self.reducer_module),
             storage_type: ctx.storage_type.clone(),
             call_snippet: if self.use_async {
                 ASYNC_CALL_SNIPPET
@@ -66,11 +66,11 @@ impl Config {
     }
 }
 
-async fn setup_deno(main_module: &PathBuf) -> Result<DenoWorker, WorkerError> {
-    let empty_module = deno_core::ModuleSpecifier::parse("data:text/javascript;base64,").unwrap();
+async fn setup_deno(reducer_module: &PathBuf) -> Result<DenoWorker, WorkerError> {
+    let main_module = deno_core::ModuleSpecifier::parse("data:text/javascript;base64,").unwrap();
 
-    let mut deno = DenoWorker::bootstrap_from_options(
-        empty_module,
+    let mut deno: DenoWorker = DenoWorker::bootstrap_from_options(
+        main_module,
         PermissionsContainer::allow_all(),
         WorkerOptions {
             extensions: vec![deno_reducer::init_ops()],
@@ -78,7 +78,7 @@ async fn setup_deno(main_module: &PathBuf) -> Result<DenoWorker, WorkerError> {
         },
     );
 
-    let code = deno_core::FastString::from(std::fs::read_to_string(main_module).unwrap());
+    let code = deno_core::FastString::from(std::fs::read_to_string(reducer_module).unwrap());
 
     deno.js_runtime
         .load_side_module(&ModuleSpecifier::parse("lyra:reducer").unwrap(), Some(code))
@@ -104,7 +104,7 @@ async fn setup_deno(main_module: &PathBuf) -> Result<DenoWorker, WorkerError> {
 #[derive(Default, Stage)]
 #[stage(name = "reducer-deno", unit = "ChainEvent", worker = "Worker")]
 pub struct Stage {
-    main_module: PathBuf,
+    reducer_module: PathBuf,
     storage_type: String,
     call_snippet: &'static str,
 
@@ -129,8 +129,8 @@ impl Worker {
 
         deno.js_runtime.op_state().borrow_mut().put(block);
 
-        let script = deno_core::FastString::from(call_snippet);
-        deno.execute_script("<anon>", script).or_panic()?;
+        let code = deno_core::FastString::from(call_snippet);
+        deno.execute_script("execute_reducer", code).or_panic()?;
         deno.run_event_loop(false).await.unwrap();
 
         let output: Option<serde_json::Value> = deno.js_runtime.op_state().borrow_mut().try_take();
@@ -142,7 +142,7 @@ impl Worker {
 #[async_trait::async_trait(?Send)]
 impl gasket::framework::Worker<Stage> for Worker {
     async fn bootstrap(stage: &Stage) -> Result<Self, WorkerError> {
-        let runtime = setup_deno(&stage.main_module).await?;
+        let runtime = setup_deno(&stage.reducer_module).await?;
         Ok(Self { runtime })
     }
 

@@ -9,12 +9,12 @@ Example of a configuration
 ```toml
 [reducer]
 type = "Deno"
-main_module = "./examples/deno-postgres/reduce.js"
-use_async = true
+reducer_module = "./examples/deno-postgres/reduce.js"
+use_async = false
 ```
 
 ### Section: `reducer`
 
 - `type`: the literal value `Deno`.
-- `main_module`: the js file with the reducer logic
+- `reducer_module`: the js file with the reducer logic
 - `use_async`: run the js in async mode

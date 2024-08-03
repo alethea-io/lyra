@@ -17,7 +17,7 @@ type = "Skip"
 
 [reducer]
 type = "Deno"
-main_module = "/reduce.js"
+reducer_module = "/reduce.js"
 use_async = true
 
 [storage]
